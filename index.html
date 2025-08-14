@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PGP Message Inspector – Key ID Match</title>
+  <style>
+    body{font-family:sans-serif;background:#0b1020;color:#e5e7eb;margin:0;padding:0}
+    header{padding:20px;text-align:center}
+    h1{margin:0}
+    .container{max-width:1000px;margin:auto;padding:20px}
+    .card{background:#111734;border-radius:10px;padding:15px;margin-bottom:20px}
+    textarea,input{width:100%;border-radius:8px;padding:10px;margin-top:5px;margin-bottom:10px;border:1px solid #1e2a55;background:#0b122b;color:#e5e7eb}
+    button{padding:10px 15px;border:none;border-radius:8px;background:#1c2750;color:white;cursor:pointer}
+    button:hover{background:#2a3b7a}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border-bottom:1px solid #1e2a55;padding:8px;text-align:left}
+    .status.ok{color:#34d399}
+    .status.err{color:#fb7185}
+  </style>
+</head>
+<body>
+<header>
+  <h1>PGP Message Inspector</h1>
+  <p>Analyze encrypted messages and optionally verify if a given public key was used.</p>
+</header>
+<div class="container">
+  <div class="card">
+    <label>PGP Message:</label>
+    <textarea id="pgp" placeholder="-----BEGIN PGP MESSAGE-----\n..."></textarea>
+    <label>Expected Recipient Public Key (ASCII-armored) – Optional, for match verification:</label>
+    <textarea id="pubkey" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----\n..."></textarea>
+    <button id="analyze">Analyze</button>
+    <div id="summary" class="status"></div>
+  </div>
+  <div class="card">
+    <h3>Recipients Found:</h3>
+    <table id="recipients"><thead><tr><th>#</th><th>Key ID</th><th>Fingerprint</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+<script type="module">
+import * as openpgp from "https://unpkg.com/openpgp@5.11.0/dist/openpgp.min.mjs";
+const pgpEl = document.getElementById('pgp');
+const pubkeyEl = document.getElementById('pubkey');
+const analyzeBtn = document.getElementById('analyze');
+const summaryEl = document.getElementById('summary');
+const recTable = document.querySelector('#recipients tbody');
+
+function addRow(tbody, cells){
+  const tr=document.createElement('tr');
+  cells.forEach(c=>{const td=document.createElement('td');td.textContent=c;tr.appendChild(td)});
+  tbody.appendChild(tr);
+}
+
+analyzeBtn.addEventListener('click', async()=>{
+  recTable.innerHTML='';
+  summaryEl.textContent='';
+  try{
+    const armored=pgpEl.value.trim();
+    if(!armored){summaryEl.textContent='No PGP message provided';summaryEl.className='status err';return;}
+    const msg=await openpgp.readMessage({armoredMessage:armored});
+    const kids=msg.getEncryptionKeyIDs?.()||[];
+    kids.forEach((kid,i)=>{
+      addRow(recTable,[i+1,kid.toHex().slice(-8).toUpperCase(),kid.toHex().toUpperCase()]);
+    });
+    if(pubkeyEl.value.trim()){
+      const pub=await openpgp.readKey({armoredKey:pubkeyEl.value.trim()});
+      const pubKids=pub.getKeyIDs?.()||[];
+      const match=kids.some(kid=>pubKids.some(pkid=>pkid.equals(kid)));
+      if(match){summaryEl.textContent='✅ The provided public key matches a recipient.';summaryEl.className='status ok';}
+      else{summaryEl.textContent='❌ The provided public key does not match any recipient.';summaryEl.className='status err';}
+    }
+  }catch(e){console.error(e);summaryEl.textContent='Error analyzing message';summaryEl.className='status err';}
+});
+</script>
+</body>
+</html>
